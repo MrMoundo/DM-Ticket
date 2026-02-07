@@ -18,6 +18,7 @@ module.exports = {
     maxMessagesPerMinute: 8,
     maxTicketsPerDay: 3,
     waitingThreshold: 5,
+    removeDataAfterDays: 10,
   },
   guilds: {
     // "GUILD_ID": {

@@ -7,6 +7,10 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  PermissionsBitField,
+  SlashCommandBuilder,
+  REST,
+  Routes,
 } = require("discord.js");
 const fs = require("fs");
 const System = require("./System/System");
@@ -42,6 +46,7 @@ const messages = {
     waiting: "الدعم مشغول حاليًا، تم إضافتك إلى قائمة الانتظار.",
     rating: "قيّم الدعم من 1 إلى 5.",
     invalidChoice: "اختيار غير صالح. حاول مرة أخرى.",
+    setupRequired: "البوت غير مهيأ في هذا السيرفر بعد. اطلب من الإدارة استخدام /setup.",
   },
   en: {
     chooseLanguage: "Choose language: type AR or EN",
@@ -56,6 +61,7 @@ const messages = {
     waiting: "Support is busy. You have been added to the waiting list.",
     rating: "Rate support from 1 to 5.",
     invalidChoice: "Invalid choice. Try again.",
+    setupRequired: "The bot is not configured in this server yet. Ask staff to run /setup.",
   },
 };
 
@@ -68,13 +74,13 @@ const closeRow = new ActionRowBuilder().addComponents(
 
 function loadData() {
   if (!fs.existsSync(System.dataFile)) {
-    return { tickets: {} };
+    return { tickets: {}, guilds: {} };
   }
   try {
     const raw = fs.readFileSync(System.dataFile, "utf-8");
-    return raw ? JSON.parse(raw) : { tickets: {} };
+    return raw ? JSON.parse(raw) : { tickets: {}, guilds: {} };
   } catch (error) {
-    return { tickets: {} };
+    return { tickets: {}, guilds: {} };
   }
 }
 
@@ -83,17 +89,27 @@ function saveData(data) {
 }
 
 function getGuildConfig(guildId) {
-  return { ...System.defaults, ...(System.guilds[guildId] || {}) };
+  const data = loadData();
+  const stored = data.guilds?.[guildId]?.config || {};
+  return { ...System.defaults, ...(System.guilds[guildId] || {}), ...stored };
 }
 
 function ensureGuild(data, guildId) {
   if (!data.tickets[guildId]) {
     data.tickets[guildId] = {};
   }
+  if (!data.guilds) data.guilds = {};
+  if (!data.guilds[guildId]) {
+    data.guilds[guildId] = { removedAt: null };
+  }
 }
 
 function getLocale(lang) {
   return messages[lang] ? lang : "ar";
+}
+
+function isManager(member) {
+  return member?.permissions.has(PermissionsBitField.Flags.ManageGuild);
 }
 
 function isSupport(member, config) {
@@ -212,6 +228,66 @@ async function closeTicket({ guildId, ticket, config, reason }) {
   }
 }
 
+function registerSlashCommands() {
+  const commands = [
+    new SlashCommandBuilder()
+      .setName("setup")
+      .setDescription("Configure the DM ticket bot")
+      .addChannelOption((option) =>
+        option
+          .setName("support_channel")
+          .setDescription("Channel for support threads")
+          .addChannelTypes(ChannelType.GuildText)
+          .setRequired(true)
+      )
+      .addChannelOption((option) =>
+        option
+          .setName("logs_channel")
+          .setDescription("Channel for ticket logs")
+          .addChannelTypes(ChannelType.GuildText)
+          .setRequired(true)
+      )
+      .addRoleOption((option) =>
+        option
+          .setName("support_role")
+          .setDescription("Role allowed to reply/close tickets")
+          .setRequired(true)
+      )
+      .addRoleOption((option) =>
+        option
+          .setName("mention_role")
+          .setDescription("Role to mention on new tickets")
+          .setRequired(false)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("language")
+          .setDescription("Default language")
+          .addChoices(
+            { name: "Arabic", value: "ar" },
+            { name: "English", value: "en" }
+          )
+          .setRequired(true)
+      ),
+  ].map((command) => command.toJSON());
+
+  const rest = new REST({ version: "10" }).setToken(System.token);
+  return rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+}
+
+async function cleanupRemovedGuilds() {
+  const data = loadData();
+  const now = Date.now();
+  const cutoff = System.defaults.removeDataAfterDays * 86_400_000;
+  for (const [guildId, meta] of Object.entries(data.guilds || {})) {
+    if (meta?.removedAt && now - meta.removedAt > cutoff) {
+      delete data.tickets[guildId];
+      delete data.guilds[guildId];
+    }
+  }
+  saveData(data);
+}
+
 async function handlePendingFlow(message, data) {
   const pending = inMemory.pending.get(message.author.id);
   if (!pending) return false;
@@ -323,6 +399,11 @@ async function createTicketFromPending(user, pending) {
   const existing = data.tickets[pending.guildId][user.id];
   if (existing && existing.status === "open") {
     await user.send(messages[locale].alreadyOpen).catch(() => null);
+    return;
+  }
+
+  if (!config.supportChannelId) {
+    await user.send(messages[locale].setupRequired).catch(() => null);
     return;
   }
 
@@ -479,6 +560,39 @@ client.on("messageCreate", async (message) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isChatInputCommand()) {
+    if (interaction.commandName !== "setup") return;
+    if (!isManager(interaction.member)) {
+      await interaction.reply({ content: "Not allowed.", ephemeral: true });
+      return;
+    }
+    const supportChannel = interaction.options.getChannel("support_channel");
+    const logsChannel = interaction.options.getChannel("logs_channel");
+    const supportRole = interaction.options.getRole("support_role");
+    const mentionRole = interaction.options.getRole("mention_role");
+    const language = interaction.options.getString("language");
+
+    const data = loadData();
+    ensureGuild(data, interaction.guild.id);
+    data.guilds[interaction.guild.id].config = {
+      ...data.guilds[interaction.guild.id].config,
+      supportChannelId: supportChannel.id,
+      logsChannelId: logsChannel.id,
+      supportRoleIds: [supportRole.id],
+      mentionRoleId: mentionRole?.id || "",
+      language,
+    };
+    data.guilds[interaction.guild.id].removedAt = null;
+    saveData(data);
+
+    await interaction.reply({
+      content: "Setup complete ✅",
+      ephemeral: true,
+    });
+  }
+});
+
+client.on("interactionCreate", async (interaction) => {
   if (!interaction.isButton()) return;
   if (interaction.customId !== "ticket_close") return;
 
@@ -526,8 +640,34 @@ setInterval(async () => {
   }
 }, 60_000);
 
+setInterval(async () => {
+  await cleanupRemovedGuilds();
+}, 86_400_000);
+
+client.on("guildCreate", async (guild) => {
+  const data = loadData();
+  ensureGuild(data, guild.id);
+  const meta = data.guilds[guild.id];
+  if (meta?.removedAt) {
+    const cutoff = System.defaults.removeDataAfterDays * 86_400_000;
+    if (Date.now() - meta.removedAt > cutoff) {
+      data.tickets[guild.id] = {};
+    }
+    meta.removedAt = null;
+  }
+  saveData(data);
+});
+
+client.on("guildDelete", async (guild) => {
+  const data = loadData();
+  ensureGuild(data, guild.id);
+  data.guilds[guild.id].removedAt = Date.now();
+  saveData(data);
+});
+
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
+  registerSlashCommands().catch((error) => console.error(error));
 });
 
 if (!System.token) {
