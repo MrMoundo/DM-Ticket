@@ -1,0 +1,12 @@
+{
+  "name": "dm-ticket",
+  "version": "1.0.0",
+  "description": "Discord DM ticket bot with multi-server support.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}
