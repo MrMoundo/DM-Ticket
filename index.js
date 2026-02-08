@@ -11,7 +11,6 @@ const {
   ButtonStyle,
   AttachmentBuilder,
   PermissionsBitField,
-  InteractionResponseFlags,
   SlashCommandBuilder,
   REST,
   Routes,
@@ -307,7 +306,7 @@ function buildWelcomeEmbed(locale) {
 async function replyEphemeral(interaction, content, components) {
   const payload = {
     content,
-    flags: InteractionResponseFlags.Ephemeral,
+    flags: 64,
     components: components ? [components].flat() : undefined,
   };
   if (interaction.replied || interaction.deferred) {
@@ -804,7 +803,7 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.reply({
       content: "Setup complete ✅",
-      flags: InteractionResponseFlags.Ephemeral,
+      flags: 64,
     });
   }
 });
@@ -880,17 +879,17 @@ client.on("interactionCreate", async (interaction) => {
         (entry) => entry.threadId === interaction.channel.id
       );
       if (!ticket) {
-        await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+        await interaction.followUp({ content: "Ticket not found.", flags: 64 }).catch(() => null);
         return;
       }
       if (!isSupport(interaction.member, config)) {
-        await interaction.followUp({ content: "Not allowed.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+        await interaction.followUp({ content: "Not allowed.", flags: 64 }).catch(() => null);
         return;
       }
       ticket.closedByTag = interaction.user.tag;
       ticket.closedById = interaction.user.id;
       await closeTicket({ guildId, ticket, config, reason: "staff close" });
-      await interaction.followUp({ content: "Ticket closed ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Ticket closed ✅", flags: 64 }).catch(() => null);
       return;
     }
     const guildId = getPrimaryGuildId();
@@ -901,7 +900,7 @@ client.on("interactionCreate", async (interaction) => {
       ticket.closedByTag = interaction.user.tag;
       ticket.closedById = interaction.user.id;
       await closeTicket({ guildId, ticket, config, reason: "user close" });
-      await interaction.followUp({ content: "Ticket closed ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Ticket closed ✅", flags: 64 }).catch(() => null);
       return;
     }
   }
@@ -914,14 +913,14 @@ client.on("interactionCreate", async (interaction) => {
     const data = loadData();
     const config = getGuildConfig(interaction.guild.id);
     if (!isSupport(interaction.member, config)) {
-      await interaction.followUp({ content: "Not allowed.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Not allowed.", flags: 64 }).catch(() => null);
       return;
     }
     const ticket = Object.values(data.tickets[interaction.guild.id]).find(
       (entry) => entry.threadId === interaction.channel.id
     );
     if (!ticket) {
-      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Ticket not found.", flags: 64 }).catch(() => null);
       return;
     }
     ticket.claimedBy = interaction.user.id;
@@ -946,7 +945,7 @@ client.on("interactionCreate", async (interaction) => {
         : messages[locale].claimNoticeSupport;
       await user.send(claimText).catch(() => null);
     }
-    await interaction.followUp({ content: "Claimed ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+    await interaction.followUp({ content: "Claimed ✅", flags: 64 }).catch(() => null);
     return;
   }
   if (interaction.customId === "ticket_transcript") {
@@ -956,7 +955,7 @@ client.on("interactionCreate", async (interaction) => {
       (entry) => entry.threadId === interaction.channel.id
     );
     if (!ticket) {
-      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Ticket not found.", flags: 64 }).catch(() => null);
       return;
     }
     const htmlBody = ticket.messages
@@ -970,14 +969,14 @@ client.on("interactionCreate", async (interaction) => {
     const file = new AttachmentBuilder(Buffer.from(html), {
       name: `ticket-${ticket.id}.html`,
     });
-    await interaction.followUp({ content: "Transcript", files: [file], flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+    await interaction.followUp({ content: "Transcript", files: [file], flags: 64 }).catch(() => null);
     return;
   }
   if (interaction.customId === "ticket_open") {
     await safeDeferUpdate(interaction);
     const config = getGuildConfig(interaction.guild.id);
     if (!interaction.member?.roles.cache.has(config.adminRoleId)) {
-      await interaction.followUp({ content: "Admins only.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Admins only.", flags: 64 }).catch(() => null);
       return;
     }
     const data = loadData();
@@ -985,7 +984,7 @@ client.on("interactionCreate", async (interaction) => {
       (entry) => entry.threadId === interaction.channel.id
     );
     if (!ticket) {
-      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Ticket not found.", flags: 64 }).catch(() => null);
       return;
     }
     ticket.status = "open";
@@ -1006,14 +1005,14 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
     }
-    await interaction.followUp({ content: "Reopened ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+    await interaction.followUp({ content: "Reopened ✅", flags: 64 }).catch(() => null);
     return;
   }
   if (interaction.customId === "ticket_delete") {
     await safeDeferUpdate(interaction);
     const config = getGuildConfig(interaction.guild.id);
     if (!interaction.member?.roles.cache.has(config.adminRoleId)) {
-      await interaction.followUp({ content: "Admins only.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Admins only.", flags: 64 }).catch(() => null);
       return;
     }
     const data = loadData();
@@ -1021,7 +1020,7 @@ client.on("interactionCreate", async (interaction) => {
       (entry) => entry.threadId === interaction.channel.id
     );
     if (!ticket) {
-      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      await interaction.followUp({ content: "Ticket not found.", flags: 64 }).catch(() => null);
       return;
     }
     delete data.tickets[interaction.guild.id][ticket.userId];
