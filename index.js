@@ -64,6 +64,11 @@ const messages = {
     reopenPrompt: "تريد فتح تكت جديد؟ اضغط الزر أدناه.",
     closePrompt: "يمكنك إغلاق التكت من الزر التالي.",
     ratingLowReason: "لو التقييم أقل من 3 نجوم، اكتب سبب عدم رضاك.",
+    awaitingTitle: "🕒 سوف يتم الرد عليك",
+    awaitingBody:
+      "**تم استلام طلبك بنجاح. الوقت المتوقع للرد:** {eta}\nيرجى الانتظار وسيتم التواصل معك قريبًا.",
+    closedEmbedTitle: "Ticket Closed",
+    closedEmbedReason: "Reason",
   },
   en: {
     chooseLanguage: "Choose language: type AR or EN",
@@ -93,6 +98,11 @@ const messages = {
     reopenPrompt: "Want to open a new ticket? Tap the button below.",
     closePrompt: "You can close the ticket using the button below.",
     ratingLowReason: "If rating is below 3, please share your feedback.",
+    awaitingTitle: "🕒 We will reply soon",
+    awaitingBody:
+      "**Your request is received. Estimated response time:** {eta}\nPlease wait and we will get back to you.",
+    closedEmbedTitle: "Ticket Closed",
+    closedEmbedReason: "Reason",
   },
 };
 
@@ -303,6 +313,42 @@ function buildWelcomeEmbed(locale) {
     .setImage("https://i.ibb.co/hJ8TcG5S/xy.png");
 }
 
+function formatEta(minutes) {
+  if (minutes <= 1) return "1 minute";
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = Math.floor(minutes / 60);
+  const remain = minutes % 60;
+  return `${hours}h ${remain}m`;
+}
+
+function buildAwaitingEmbed(locale, etaMinutes) {
+  const body = messages[locale].awaitingBody.replace("{eta}", formatEta(etaMinutes));
+  return new EmbedBuilder()
+    .setTitle(messages[locale].awaitingTitle)
+    .setDescription(body)
+    .setColor(0x2f3136)
+    .setImage("https://i.ibb.co/hJ8TcG5S/xy.png");
+}
+
+function buildClosedEmbed(locale, ticket, reason) {
+  return new EmbedBuilder()
+    .setTitle(messages[locale].closedEmbedTitle)
+    .setColor(0xff5555)
+    .addFields(
+      {
+        name: messages[locale].closedEmbedReason,
+        value: reason || "No reason provided",
+      },
+      {
+        name: "Time",
+        value: ticket.closedAt
+          ? `${Math.floor((ticket.closedAt - ticket.openedAt) / 3600000)} hours, ${Math.floor(((ticket.closedAt - ticket.openedAt) % 3600000) / 60000)} minutes, ${Math.floor(((ticket.closedAt - ticket.openedAt) % 60000) / 1000)} seconds`
+          : "-",
+      }
+    )
+    .setTimestamp(ticket.closedAt || Date.now());
+}
+
 async function replyEphemeral(interaction, content, components) {
   const payload = {
     content,
@@ -374,6 +420,9 @@ async function closeTicket({ guildId, ticket, config, reason }) {
       .catch(() => null);
     await user
       .send({ content: messages[locale].closePrompt, components: [dmCloseRow] })
+      .catch(() => null);
+    await user
+      .send({ embeds: [buildClosedEmbed(locale, ticketData, reason)] })
       .catch(() => null);
     inMemory.pending.set(user.id, {
       step: "rating",
@@ -644,7 +693,12 @@ async function createTicketFromPending(user, pending) {
     }
   }
 
+  const openTickets = Object.values(data.tickets[pending.guildId]).filter(
+    (entry) => entry.status === "open"
+  ).length;
+  const etaMinutes = Math.max(5, openTickets * 5);
   await user.send(messages[locale].ticketOpened, { components: [dmCloseRow] }).catch(() => null);
+  await user.send({ embeds: [buildAwaitingEmbed(locale, etaMinutes)] }).catch(() => null);
 }
 
 async function forwardUserMessage(message, ticket, config) {
