@@ -11,6 +11,7 @@ const {
   ButtonStyle,
   AttachmentBuilder,
   PermissionsBitField,
+  InteractionResponseFlags,
   SlashCommandBuilder,
   REST,
   Routes,
@@ -38,8 +39,7 @@ const inMemory = {
 const messages = {
   ar: {
     chooseLanguage: "اختر اللغة: اكتب AR أو EN",
-    chooseCategory: "اختر نوع التذكرة من الأزرار:",
-    askReason: "اكتب سبب فتح التذكرة باختصار.",
+    askReason: "اكتب سبب فتحك للتكت الآن.",
     alreadyOpen: "عندك تذكرة مفتوحة بالفعل. انتظر رد الدعم.",
     blocked: "تم حظرك مؤقتًا بسبب كثرة فتح التذاكر.",
     rateLimited: "يرجى التهدئة. تم تقييد الرسائل بسبب السبام.",
@@ -53,7 +53,7 @@ const messages = {
     idleClosed: "تم إغلاق التذكرة بسبب التأخير في الرد.",
     ticketPromptTitle: "🎫 إنشاء تذكرة دعم",
     ticketPromptBody:
-      "```\nيرجى اختيار نوع التذكرة من الأزرار أدناه.\nسيتم إغلاق الطلب تلقائياً إذا لم تُكمل خلال الوقت المحدد.\n```",
+      "```\nابدأ مباشرة بكتابة سبب فتح التكت.\nسيتم إغلاق الطلب تلقائياً إذا لم تُكمل خلال الوقت المحدد.\n```",
     requestDetailsTitle: "تفاصيل التذكرة",
     requestDetailsBody:
       "**يرجى كتابة السبب بالتفصيل مع أي معلومات مهمة مثل:\n• رقم الطلب\n• الوقت\n• رابط/صورة\n• خطوات المشكلة**",
@@ -63,12 +63,12 @@ const messages = {
     claimNoticeSupport: "تم استلام التكت من قبل Chillaxy Support ✅",
     claimNoticeAdmin: "تم استلام التكت من قبل شلاكسي ادمن ✅",
     reopenPrompt: "تريد فتح تكت جديد؟ اضغط الزر أدناه.",
+    closePrompt: "يمكنك إغلاق التكت من الزر التالي.",
     ratingLowReason: "لو التقييم أقل من 3 نجوم، اكتب سبب عدم رضاك.",
   },
   en: {
     chooseLanguage: "Choose language: type AR or EN",
-    chooseCategory: "Choose a ticket category using the buttons:",
-    askReason: "Describe the reason for opening the ticket.",
+    askReason: "Tell us why you are opening this ticket.",
     alreadyOpen: "You already have an open ticket. Please wait for support.",
     blocked: "You are temporarily blocked due to too many tickets.",
     rateLimited: "Please slow down. You are being rate limited.",
@@ -82,7 +82,7 @@ const messages = {
     idleClosed: "Ticket closed due to inactivity.",
     ticketPromptTitle: "🎫 Create Support Ticket",
     ticketPromptBody:
-      "```\nPlease choose a category using the buttons below.\nThe request will timeout if you don't complete it in time.\n```",
+      "```\nStart by typing the reason for opening this ticket.\nThe request will timeout if you don't complete it in time.\n```",
     requestDetailsTitle: "Ticket Details",
     requestDetailsBody:
       "**Please describe the issue with details such as:\n• Order ID\n• Time\n• Link/Screenshot\n• Reproduction steps**",
@@ -92,6 +92,7 @@ const messages = {
     claimNoticeSupport: "Your ticket has been claimed by Chillaxy Support ✅",
     claimNoticeAdmin: "Your ticket has been claimed by Chillaxy Admin ✅",
     reopenPrompt: "Want to open a new ticket? Tap the button below.",
+    closePrompt: "You can close the ticket using the button below.",
     ratingLowReason: "If rating is below 3, please share your feedback.",
   },
 };
@@ -105,13 +106,9 @@ const closeRow = new ActionRowBuilder().addComponents(
 
 const dmCloseRow = new ActionRowBuilder().addComponents(
   new ButtonBuilder()
-    .setCustomId("ticket_close_user")
+    .setCustomId("ticket_close_request")
     .setLabel("Close Ticket")
-    .setStyle(ButtonStyle.Danger),
-  new ButtonBuilder()
-    .setCustomId("ticket_reopen")
-    .setLabel("Reopen Ticket")
-    .setStyle(ButtonStyle.Secondary)
+    .setStyle(ButtonStyle.Danger)
 );
 
 const ratingRow = new ActionRowBuilder().addComponents(
@@ -120,6 +117,26 @@ const ratingRow = new ActionRowBuilder().addComponents(
   new ButtonBuilder().setCustomId("ticket_rate:3").setLabel("3").setStyle(ButtonStyle.Secondary),
   new ButtonBuilder().setCustomId("ticket_rate:4").setLabel("4").setStyle(ButtonStyle.Primary),
   new ButtonBuilder().setCustomId("ticket_rate:5").setLabel("5").setStyle(ButtonStyle.Success)
+);
+
+const closeConfirmRow = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId("ticket_close_confirm")
+    .setLabel("Confirm Close")
+    .setStyle(ButtonStyle.Danger),
+  new ButtonBuilder()
+    .setCustomId("ticket_close_cancel")
+    .setLabel("Cancel")
+    .setStyle(ButtonStyle.Secondary)
+);
+
+const ticketControlsRow = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId("ticket_transcript")
+    .setLabel("Transcript")
+    .setStyle(ButtonStyle.Secondary),
+  new ButtonBuilder().setCustomId("ticket_open").setLabel("Open").setStyle(ButtonStyle.Success),
+  new ButtonBuilder().setCustomId("ticket_delete").setLabel("Delete").setStyle(ButtonStyle.Danger)
 );
 
 function loadData() {
@@ -203,19 +220,6 @@ function getPrimaryGuildId() {
   return client.guilds.cache.first()?.id || null;
 }
 
-function buildCategoryButtons(config) {
-  const row = new ActionRowBuilder();
-  for (const category of config.ticketCategories.slice(0, 5)) {
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`ticket_category:${category.id}`)
-        .setLabel(category.labelAr)
-        .setStyle(ButtonStyle.Primary)
-    );
-  }
-  return [row];
-}
-
 function buildLanguageButtons() {
   return [
     new ActionRowBuilder().addComponents(
@@ -236,27 +240,17 @@ async function ensureThread(channel, name) {
 }
 
 function buildTicketEmbed(ticket, user, config, locale) {
-  const categories = config.ticketCategories.find(
-    (category) => category.id === ticket.category
-  );
   return new EmbedBuilder()
     .setTitle(`🎫 Ticket ${ticket.id}`)
     .setDescription(
       "```\nتفاصيل التذكرة الرسمية\nOfficial Ticket Details\n```"
     )
     .setColor(config.embedColor || "#5865F2")
-    .setImage("https://i.ibb.co/9H5x1B5K/0xy.gif")
+    .setImage("https://i.ibb.co/hJ8TcG5S/xy.png")
     .addFields(
       {
         name: "👤 User",
         value: `${user.tag}\n\`${user.id}\``,
-      },
-      {
-        name: locale === "ar" ? "🏷️ النوع" : "🏷️ Category",
-        value:
-          locale === "ar"
-            ? categories?.labelAr || ticket.category
-            : categories?.labelEn || ticket.category,
       },
       {
         name: locale === "ar" ? "📌 الحالة" : "📌 Status",
@@ -274,6 +268,14 @@ function buildTicketEmbed(ticket, user, config, locale) {
         name: locale === "ar" ? "⏰ وقت الفتح" : "⏰ Opened At",
         value: `<t:${Math.floor(ticket.openedAt / 1000)}:F>`,
       },
+      ...(ticket.closedAt
+        ? [
+            {
+              name: locale === "ar" ? "⏳ وقت الإغلاق" : "⏳ Closed At",
+              value: `<t:${Math.floor(ticket.closedAt / 1000)}:F>`,
+            },
+          ]
+        : []),
       {
         name: locale === "ar" ? "🔒 الصلاحية" : "🔒 Access",
         value: config.supportRoleIds.length
@@ -281,9 +283,42 @@ function buildTicketEmbed(ticket, user, config, locale) {
           : locale === "ar"
             ? "إدارة السيرفر"
             : "Server management",
+      },
+      {
+        name: locale === "ar" ? "🤝 المستلم" : "🤝 Claimed By",
+        value: ticket.claimedByTag || "-",
+      },
+      {
+        name: locale === "ar" ? "✅ تم الإغلاق بواسطة" : "✅ Closed By",
+        value: ticket.closedByTag || "-",
       }
     )
     .setTimestamp(ticket.openedAt);
+}
+
+function buildWelcomeEmbed(locale) {
+  return new EmbedBuilder()
+    .setTitle(messages[locale].ticketPromptTitle)
+    .setDescription(messages[locale].ticketPromptBody)
+    .setColor(0x2f3136)
+    .setImage("https://i.ibb.co/hJ8TcG5S/xy.png");
+}
+
+async function replyEphemeral(interaction, content, components) {
+  const payload = {
+    content,
+    flags: InteractionResponseFlags.Ephemeral,
+    components: components ? [components].flat() : undefined,
+  };
+  if (interaction.replied || interaction.deferred) {
+    return interaction.followUp(payload).catch(() => null);
+  }
+  return interaction.reply(payload).catch(() => null);
+}
+
+async function safeDeferUpdate(interaction) {
+  if (interaction.deferred || interaction.replied) return;
+  await interaction.deferUpdate().catch(() => null);
 }
 
 async function closeTicket({ guildId, ticket, config, reason }) {
@@ -291,6 +326,10 @@ async function closeTicket({ guildId, ticket, config, reason }) {
   ensureGuild(data, guildId);
   const ticketData = data.tickets[guildId][ticket.userId];
   if (!ticketData) return;
+  if (ticket.closedByTag) {
+    ticketData.closedByTag = ticket.closedByTag;
+    ticketData.closedById = ticket.closedById;
+  }
   ticketData.status = "closed";
   ticketData.closedAt = Date.now();
   ticketData.closeReason = reason;
@@ -301,8 +340,17 @@ async function closeTicket({ guildId, ticket, config, reason }) {
     const channel = await guild.channels.fetch(config.supportChannelId);
     const thread = await channel.threads.fetch(ticket.threadId).catch(() => null);
     if (thread) {
+      if (ticket.threadMessageId) {
+        const starter = await thread.messages.fetch(ticket.threadMessageId).catch(() => null);
+        if (starter) {
+          const locale = getLocale(ticket.language || config.language);
+          const embed = buildTicketEmbed(ticketData, await client.users.fetch(ticket.userId), config, locale);
+          await starter.edit({ embeds: [embed] }).catch(() => null);
+        }
+      }
       await thread.setLocked(true).catch(() => null);
       await thread.setArchived(true).catch(() => null);
+      await thread.send({ content: "Support team ticket controls", components: [ticketControlsRow] }).catch(() => null);
     }
   }
 
@@ -319,14 +367,14 @@ async function closeTicket({ guildId, ticket, config, reason }) {
       : 1;
     await user
       .send(
-        `**رقم التكت:** #${ticket.number}\n**تم حل مشكلتك خلال:** ${duration} دقيقة`
+        `**رقم التكت:** #${ticket.number}\n**تم حل مشكلتك خلال:** ${duration} دقيقة\n**لأي شكوى استخدم رقم التكت.**`
       )
       .catch(() => null);
     await user
       .send({ content: messages[locale].rating, components: [ratingRow] })
       .catch(() => null);
     await user
-      .send({ content: messages[locale].reopenPrompt, components: [dmCloseRow] })
+      .send({ content: messages[locale].closePrompt, components: [dmCloseRow] })
       .catch(() => null);
     inMemory.pending.set(user.id, {
       step: "rating",
@@ -348,7 +396,8 @@ async function closeTicket({ guildId, ticket, config, reason }) {
             `<p><strong>${entry.from}</strong> [${new Date(entry.timestamp).toISOString()}] : ${entry.content}</p>`
         )
         .join("\n");
-      const html = `<!doctype html><html><head><meta charset=\"utf-8\"><title>Ticket ${ticket.id}</title></head><body>${htmlBody}</body></html>`;
+      const htmlMeta = `<p><strong>Opened By:</strong> ${ticket.userTag} (${ticket.userId})</p><p><strong>Claimed By:</strong> ${ticket.claimedByTag || "-"}</p><p><strong>Closed By:</strong> ${ticket.closedByTag || "-"}</p>`;
+      const html = `<!doctype html><html><head><meta charset=\"utf-8\"><title>Ticket ${ticket.id}</title></head><body>${htmlMeta}${htmlBody}</body></html>`;
       const file = new AttachmentBuilder(Buffer.from(html), {
         name: `ticket-${ticket.id}.html`,
       });
@@ -363,7 +412,9 @@ async function closeTicket({ guildId, ticket, config, reason }) {
         .setColor(color)
         .addFields(
           { name: "User", value: `${ticket.userTag} (${ticket.userId})` },
-          { name: "Reason", value: reason || "-" }
+          { name: "Reason", value: reason || "-" },
+          { name: "Claimed By", value: ticket.claimedByTag || "-" },
+          { name: "Closed By", value: ticket.closedByTag || "-" }
         )
         .setTimestamp();
       await logsChannel.send({ embeds: [logEmbed], files: [file] }).catch(() => null);
@@ -479,20 +530,6 @@ async function handlePendingFlow(message, data) {
     return true;
   }
 
-  if (pending.step === "category") {
-    const config = getGuildConfig(pending.guildId);
-    const index = Number(message.content.trim()) - 1;
-    const category = config.ticketCategories[index];
-    if (!category) {
-      await message.author.send(messages[locale].invalidChoice).catch(() => null);
-      return true;
-    }
-    pending.category = category.id;
-    pending.step = "reason";
-    await sendPendingPrompt(message.author, pending);
-    return true;
-  }
-
   if (pending.step === "reason") {
     pending.reason = message.content.trim();
     await createTicketFromPending(message.author, pending);
@@ -532,26 +569,7 @@ async function sendPendingPrompt(user, pending) {
       .catch(() => null);
     return;
   }
-  if (pending.step === "category") {
-    const config = getGuildConfig(pending.guildId);
-    const embed = new EmbedBuilder()
-      .setTitle(messages[locale].ticketPromptTitle)
-      .setDescription(messages[locale].ticketPromptBody)
-      .setColor(0x2f3136);
-    await user
-      .send({
-        embeds: [embed],
-        components: buildCategoryButtons(config),
-      })
-      .catch(() => null);
-    return;
-  }
   if (pending.step === "reason") {
-    const embed = new EmbedBuilder()
-      .setTitle(messages[locale].requestDetailsTitle)
-      .setDescription(messages[locale].requestDetailsBody)
-      .setColor(0x5865f2);
-    await user.send({ embeds: [embed] }).catch(() => null);
     await user.send(messages[locale].askReason).catch(() => null);
   }
 }
@@ -585,7 +603,7 @@ async function createTicketFromPending(user, pending) {
     openedAt: Date.now(),
     status: "open",
     language: locale,
-    category: pending.category,
+    category: pending.category || "general",
     reason: pending.reason,
     messages: [],
     lastActivity: Date.now(),
@@ -596,13 +614,13 @@ async function createTicketFromPending(user, pending) {
 
   const guild = await client.guilds.fetch(pending.guildId);
   const channel = await guild.channels.fetch(config.supportChannelId);
-  const thread = await ensureThread(channel, `ticket-${ticketId}`);
+  const thread = await ensureThread(channel, `ticket-${ticketNumber}`);
   ticket.threadId = thread.id;
   saveData(data);
 
   const embed = buildTicketEmbed(ticket, user, config, locale);
   const mention = config.mentionRoleId ? `<@&${config.mentionRoleId}>` : "";
-  await thread.send({
+  const starterMessage = await thread.send({
     content: `${mention} <@${user.id}>`,
     embeds: [embed],
     components: [
@@ -615,6 +633,8 @@ async function createTicketFromPending(user, pending) {
       ),
     ],
   });
+  ticket.threadMessageId = starterMessage.id;
+  saveData(data);
 
   if (config.waitingThreshold) {
     const openTickets = Object.values(data.tickets[pending.guildId]).filter(
@@ -697,8 +717,10 @@ client.on("messageCreate", async (message) => {
       guildId,
       expiresAt:
         Date.now() + System.defaults.setupTimeoutMinutes * 60_000,
+      category: "general",
     };
     inMemory.pending.set(message.author.id, newPending);
+    await message.author.send({ embeds: [buildWelcomeEmbed("ar")] }).catch(() => null);
     await sendPendingPrompt(message.author, newPending);
     return;
   }
@@ -736,6 +758,8 @@ client.on("messageCreate", async (message) => {
       );
       if (!ticket) return;
       if (!isSupport(message.member, config)) return;
+      ticket.closedByTag = message.author.tag;
+      ticket.closedById = message.author.id;
       await closeTicket({
         guildId: message.guild.id,
         ticket,
@@ -751,7 +775,7 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName !== "setup") return;
     const config = getGuildConfig(interaction.guild.id);
     if (!isManager(interaction.member, config)) {
-      await interaction.reply({ content: "Not allowed.", ephemeral: true });
+      await replyEphemeral(interaction, "Not allowed.");
       return;
     }
     const supportChannel = interaction.options.getChannel("support_channel");
@@ -780,7 +804,7 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.reply({
       content: "Setup complete ✅",
-      ephemeral: true,
+      flags: InteractionResponseFlags.Ephemeral,
     });
   }
 });
@@ -790,7 +814,7 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName !== "purge-user") return;
     const config = getGuildConfig(interaction.guild.id);
     if (!isManager(interaction.member, config)) {
-      await interaction.reply({ content: "Not allowed.", ephemeral: true });
+      await replyEphemeral(interaction, "Not allowed.");
       return;
     }
     const target = interaction.options.getUser("user");
@@ -798,7 +822,7 @@ client.on("interactionCreate", async (interaction) => {
     ensureGuild(data, interaction.guild.id);
     delete data.tickets[interaction.guild.id][target.id];
     saveData(data);
-    await interaction.reply({ content: "User data deleted ✅", ephemeral: true });
+    await replyEphemeral(interaction, "User data deleted ✅");
   }
 });
 
@@ -808,31 +832,12 @@ client.on("interactionCreate", async (interaction) => {
     const lang = interaction.customId.split(":")[1];
     const pending = inMemory.pending.get(interaction.user.id);
     if (!pending || pending.step !== "language") {
-      await interaction.reply({ content: messages.ar.invalidChoice, ephemeral: true });
+      await replyEphemeral(interaction, messages.ar.invalidChoice);
       return;
     }
     pending.language = lang;
-    pending.step = "category";
-    await interaction.reply({ content: "✅", ephemeral: true });
-    await sendPendingPrompt(interaction.user, pending);
-    return;
-  }
-  if (interaction.customId.startsWith("ticket_category:")) {
-    const categoryId = interaction.customId.split(":")[1];
-    const pending = inMemory.pending.get(interaction.user.id);
-    const locale = getLocale(pending?.language || "ar");
-    if (!pending || pending.step !== "category") {
-      await interaction.reply({ content: messages[locale].invalidChoice, ephemeral: true });
-      return;
-    }
-    if (pending.expiresAt && Date.now() > pending.expiresAt) {
-      inMemory.pending.delete(interaction.user.id);
-      await interaction.reply({ content: messages[locale].setupExpired, ephemeral: true });
-      return;
-    }
-    pending.category = categoryId;
     pending.step = "reason";
-    await interaction.reply({ content: "✅", ephemeral: true });
+    await replyEphemeral(interaction, "✅");
     await sendPendingPrompt(interaction.user, pending);
     return;
   }
@@ -840,7 +845,7 @@ client.on("interactionCreate", async (interaction) => {
     const rating = Number(interaction.customId.split(":")[1]);
     const pending = inMemory.pending.get(interaction.user.id);
     if (!pending || pending.step !== "rating") {
-      await interaction.reply({ content: "Not active.", ephemeral: true });
+      await replyEphemeral(interaction, "Not active.");
       return;
     }
     const data = loadData();
@@ -854,59 +859,85 @@ client.on("interactionCreate", async (interaction) => {
     }
     if (rating < 3) {
       pending.step = "rating_reason";
-      await interaction.reply({ content: messages[pending.language].ratingLowReason, ephemeral: true });
+      await replyEphemeral(interaction, messages[pending.language].ratingLowReason);
       return;
     }
     inMemory.pending.delete(interaction.user.id);
-    await interaction.reply({ content: "Thanks ✅", ephemeral: true });
+    await replyEphemeral(interaction, "Thanks ✅");
     return;
   }
-  if (interaction.customId === "ticket_reopen") {
-    const guildId = getPrimaryGuildId();
-    if (!guildId) {
-      await interaction.reply({ content: messages.ar.setupRequired, ephemeral: true });
+  if (interaction.customId === "ticket_close_request") {
+    await replyEphemeral(interaction, "Are you sure you want to close?", closeConfirmRow);
+    return;
+  }
+  if (interaction.customId === "ticket_close_confirm") {
+    await safeDeferUpdate(interaction);
+    const data = loadData();
+    if (interaction.channel?.isThread()) {
+      const guildId = interaction.guild.id;
+      const config = getGuildConfig(guildId);
+      const ticket = Object.values(data.tickets[guildId]).find(
+        (entry) => entry.threadId === interaction.channel.id
+      );
+      if (!ticket) {
+        await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+        return;
+      }
+      if (!isSupport(interaction.member, config)) {
+        await interaction.followUp({ content: "Not allowed.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+        return;
+      }
+      ticket.closedByTag = interaction.user.tag;
+      ticket.closedById = interaction.user.id;
+      await closeTicket({ guildId, ticket, config, reason: "staff close" });
+      await interaction.followUp({ content: "Ticket closed ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
       return;
     }
-    const newPending = {
-      step: "language",
-      language: "ar",
-      userId: interaction.user.id,
-      guildId,
-      expiresAt: Date.now() + System.defaults.setupTimeoutMinutes * 60_000,
-    };
-    inMemory.pending.set(interaction.user.id, newPending);
-    await interaction.reply({ content: "✅", ephemeral: true });
-    await sendPendingPrompt(interaction.user, newPending);
-    return;
-  }
-  if (interaction.customId === "ticket_close_user") {
-    const data = loadData();
     const guildId = getPrimaryGuildId();
     if (!guildId) return;
     const ticket = data.tickets[guildId]?.[interaction.user.id];
     if (ticket?.status === "open") {
       const config = getGuildConfig(guildId);
+      ticket.closedByTag = interaction.user.tag;
+      ticket.closedById = interaction.user.id;
       await closeTicket({ guildId, ticket, config, reason: "user close" });
-      await interaction.reply({ content: "Ticket closed ✅", ephemeral: true });
+      await interaction.followUp({ content: "Ticket closed ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
       return;
     }
   }
+  if (interaction.customId === "ticket_close_cancel") {
+    await replyEphemeral(interaction, "Cancelled ✅");
+    return;
+  }
   if (interaction.customId === "ticket_claim") {
+    await safeDeferUpdate(interaction);
     const data = loadData();
     const config = getGuildConfig(interaction.guild.id);
     if (!isSupport(interaction.member, config)) {
-      await interaction.reply({ content: "Not allowed.", ephemeral: true });
+      await interaction.followUp({ content: "Not allowed.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
       return;
     }
     const ticket = Object.values(data.tickets[interaction.guild.id]).find(
       (entry) => entry.threadId === interaction.channel.id
     );
     if (!ticket) {
-      await interaction.reply({ content: "Ticket not found.", ephemeral: true });
+      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
       return;
     }
     ticket.claimedBy = interaction.user.id;
+    ticket.claimedByTag = interaction.user.tag;
     saveData(data);
+    if (ticket.threadMessageId) {
+      const thread = await interaction.channel.fetch().catch(() => null);
+      if (thread) {
+        const starter = await thread.messages.fetch(ticket.threadMessageId).catch(() => null);
+        if (starter) {
+          const locale = getLocale(ticket.language || config.language);
+          const embed = buildTicketEmbed(ticket, await client.users.fetch(ticket.userId), config, locale);
+          await starter.edit({ embeds: [embed] }).catch(() => null);
+        }
+      }
+    }
     const user = await client.users.fetch(ticket.userId).catch(() => null);
     if (user) {
       const locale = getLocale(ticket.language || config.language);
@@ -915,7 +946,87 @@ client.on("interactionCreate", async (interaction) => {
         : messages[locale].claimNoticeSupport;
       await user.send(claimText).catch(() => null);
     }
-    await interaction.reply({ content: "Claimed ✅", ephemeral: true });
+    await interaction.followUp({ content: "Claimed ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+    return;
+  }
+  if (interaction.customId === "ticket_transcript") {
+    await safeDeferUpdate(interaction);
+    const data = loadData();
+    const ticket = Object.values(data.tickets[interaction.guild.id]).find(
+      (entry) => entry.threadId === interaction.channel.id
+    );
+    if (!ticket) {
+      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      return;
+    }
+    const htmlBody = ticket.messages
+      .map(
+        (entry) =>
+          `<p><strong>${entry.from}</strong> [${new Date(entry.timestamp).toISOString()}] : ${entry.content}</p>`
+      )
+      .join("\n");
+    const htmlMeta = `<p><strong>Opened By:</strong> ${ticket.userTag} (${ticket.userId})</p><p><strong>Claimed By:</strong> ${ticket.claimedByTag || "-"}</p><p><strong>Closed By:</strong> ${ticket.closedByTag || "-"}</p>`;
+    const html = `<!doctype html><html><head><meta charset=\"utf-8\"><title>Ticket ${ticket.id}</title></head><body>${htmlMeta}${htmlBody}</body></html>`;
+    const file = new AttachmentBuilder(Buffer.from(html), {
+      name: `ticket-${ticket.id}.html`,
+    });
+    await interaction.followUp({ content: "Transcript", files: [file], flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+    return;
+  }
+  if (interaction.customId === "ticket_open") {
+    await safeDeferUpdate(interaction);
+    const config = getGuildConfig(interaction.guild.id);
+    if (!interaction.member?.roles.cache.has(config.adminRoleId)) {
+      await interaction.followUp({ content: "Admins only.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      return;
+    }
+    const data = loadData();
+    const ticket = Object.values(data.tickets[interaction.guild.id]).find(
+      (entry) => entry.threadId === interaction.channel.id
+    );
+    if (!ticket) {
+      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      return;
+    }
+    ticket.status = "open";
+    ticket.closedAt = null;
+    ticket.closedByTag = null;
+    ticket.closedById = null;
+    saveData(data);
+    const thread = await interaction.channel.fetch().catch(() => null);
+    if (thread) {
+      await thread.setLocked(false).catch(() => null);
+      await thread.setArchived(false).catch(() => null);
+      if (ticket.threadMessageId) {
+        const starter = await thread.messages.fetch(ticket.threadMessageId).catch(() => null);
+        if (starter) {
+          const locale = getLocale(ticket.language || config.language);
+          const embed = buildTicketEmbed(ticket, await client.users.fetch(ticket.userId), config, locale);
+          await starter.edit({ embeds: [embed] }).catch(() => null);
+        }
+      }
+    }
+    await interaction.followUp({ content: "Reopened ✅", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+    return;
+  }
+  if (interaction.customId === "ticket_delete") {
+    await safeDeferUpdate(interaction);
+    const config = getGuildConfig(interaction.guild.id);
+    if (!interaction.member?.roles.cache.has(config.adminRoleId)) {
+      await interaction.followUp({ content: "Admins only.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      return;
+    }
+    const data = loadData();
+    const ticket = Object.values(data.tickets[interaction.guild.id]).find(
+      (entry) => entry.threadId === interaction.channel.id
+    );
+    if (!ticket) {
+      await interaction.followUp({ content: "Ticket not found.", flags: InteractionResponseFlags.Ephemeral }).catch(() => null);
+      return;
+    }
+    delete data.tickets[interaction.guild.id][ticket.userId];
+    saveData(data);
+    await interaction.channel.delete("Ticket deleted").catch(() => null);
     return;
   }
   if (interaction.customId !== "ticket_close") return;
@@ -927,20 +1038,15 @@ client.on("interactionCreate", async (interaction) => {
     (entry) => entry.threadId === interaction.channel.id
   );
   if (!ticket) {
-    await interaction.reply({ content: "Ticket not found.", ephemeral: true });
+    await replyEphemeral(interaction, "Ticket not found.");
     return;
   }
   if (!isSupport(interaction.member, config)) {
-    await interaction.reply({ content: "Not allowed.", ephemeral: true });
+    await replyEphemeral(interaction, "Not allowed.");
     return;
   }
-  await closeTicket({
-    guildId: interaction.guild.id,
-    ticket,
-    config,
-    reason: "button close",
-  });
-  await interaction.reply({ content: "Ticket closed.", ephemeral: true });
+  await replyEphemeral(interaction, "Are you sure you want to close?", closeConfirmRow);
+  return;
 });
 
 setInterval(async () => {
